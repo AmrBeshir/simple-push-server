@@ -5,9 +5,11 @@ const cors = require('cors')
 const ruid = require('express-ruid')
 const logger = require('./logger')
 const bcrypt = require('bcrypt')
-const userRepo = require('./user-repo')
+const userRepo = require('./repo/user-repo')
+const tokenRepo = require('./repo/token-repo')
 
 const saltRounds = process.env.SALT_ROUNDS || 10;
+
 
 const app = express()
 const port = process.env.PORT || 3010
@@ -33,7 +35,6 @@ let vapidKeys;
 
 if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
     vapidKeys = webPush.generateVAPIDKeys()
-    console.log('-------------KEYS UNSET. GENERATED RANDOM KEYS-------------')
     console.log(vapidKeys);
     webPush.setVapidDetails(
         process.env.FRONTEND_URL,
@@ -61,7 +62,7 @@ app.post('/login', async (req, res) => {
         })
 
     } catch (error) {
-        console.log(error)
+        logger.error(error)
         res.status(400).send('Invalid Username or Password')
     }
 })
@@ -73,7 +74,7 @@ app.post('/signup', async (req, res) => {
         await userRepo.createUser(req.body.username, hashed_password)
         res.status(201).send('User Created')
     } catch (error) {
-        console.log(error)
+        logger.error(error)
         res.status(400).send('Bad Request')
     }
 })
@@ -84,8 +85,50 @@ app.get('/keys', (req, res) => {
 })
 
 app.post('/register', async (req, res) => {
-
+    logger.log(req, '-Start Registration-')
+    logger.log(req, req.body)
+    const data = req.body
+    try {
+        const result = await tokenRepo.addUserToken(data.userId,data.deviceDetails,data.token)
+        res.status(201).send(result)
+    } catch(error) {
+        logger.error(req, error)
+        res.status(500).send('error adding token')
+    }
 })
+
+app.post('/sendNotification', async(req,res) => {
+    logger.log(req, '-Start Sending Notification-')
+    try{
+        const request = req.body
+        const payload = JSON.stringify({
+            title: request.title,
+            body: request.body,
+            actionUrl: request.actionUrl
+        })
+        
+        logger.log(req, payload)
+        const tokens = await tokenRepo.getTokenByUserId(request.userId)
+        await Promise.all(
+            tokens.map(async (token) => {
+                const regSubscription = token.token;
+                try {
+                    await webPush.sendNotification(regSubscription, payload);
+                } catch (error) {
+                    if (error.statusCode === 410) {
+                        logger.log(req, `User with id ${token.user_id} has expired, Token deleted`)
+                        tokenRepo.deleteUserToken(token)
+                    }
+                    logger.error(req,error);
+                }
+            })
+        );
+        res.send('sent')
+    } catch(error) {
+        logger.error(req,error)
+        res.status(500).send("error sending notication")
+    }
+}) 
 
 app.listen(port, () => {
     console.log(`app listening on port ${port}`)
