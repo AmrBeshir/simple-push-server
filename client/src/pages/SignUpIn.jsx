@@ -10,19 +10,27 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
 import { useState } from 'react';
+import { login, signup } from '../api/user';
+import { useNavigate } from 'react-router-dom';
 
 export default function SignIn() {
 
   const [formState, setFormState] = useState('in')
+  const navigate = useNavigate()
+
+  React.useEffect(() => {
+    if(localStorage.getItem("id"))
+      navigate("/home",{replace: true})
+  },[])
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    console.log({
-      email: data.get('email'),
-      password: data.get('password'),
-    });
-
+    const email = data.get('email');
+    const password = data.get('password');
+    if(formState === 'in')
+      login(data.get('email'),password)
+    else signup(email,password)
   };
 
   const changeFormState = () => {
